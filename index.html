@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SG Parking Discovery — Live Area Availability, Arrival Predictions & Lunch Deals</title>
+  <meta name="description" content="Singapore nationwide carpark search by area with Google Maps UI, 30-minute lot expiry turnover prediction, drive-time arrival recommendations, and weekday lunch parking deals.">
+  
+  <!-- Leaflet CSS for Google Maps UI styled interactive mapping -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+  <!-- Accessible Screen Reader Live Region -->
+  <div id="a11y-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Top Application Header -->
+  <header class="app-header" role="banner">
+    <div class="header-inner">
+      <div class="brand-wrapper">
+        <div class="brand-icon" aria-hidden="true">P</div>
+        <div class="brand-text-block">
+          <h1>SG Parking Discovery</h1>
+          <div class="brand-tag">
+            <span class="badge-flag">SG</span>
+            <span>Nationwide Carpark Directory & Predictive Arrival Grid</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Navigation Tabs -->
+      <nav class="main-app-tabs" role="tablist" aria-label="Main Application Views">
+        <button 
+          type="button" 
+          class="app-tab-btn active" 
+          id="tab-btn-parking" 
+          role="tab" 
+          aria-selected="true" 
+          aria-controls="view-parking-discovery"
+          onclick="switchAppView('parking')"
+        >
+          <span class="tab-icon">🗺️</span>
+          <span>Find Parking & Live Map</span>
+        </button>
+        <button 
+          type="button" 
+          class="app-tab-btn" 
+          id="tab-btn-lunch" 
+          role="tab" 
+          aria-selected="false" 
+          aria-controls="view-lunch-deals"
+          onclick="switchAppView('lunch')"
+        >
+          <span class="tab-icon">🍽️</span>
+          <span>Lunch & Parking Deals</span>
+          <span class="tab-badge-glow">Free 12-2pm</span>
+        </button>
+      </nav>
+
+      <!-- Status Indicator -->
+      <div class="header-status-badge" title="Connected to Singapore Carpark Directory, LTA DataMall, and Parking.sg Turnover Feed">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span class="status-text-live">Live Lots & 30m Expiry Grid</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========================================================================= -->
+  <!-- VIEW 1: LIVE PARKING DISCOVERY & GOOGLE MAPS UI -->
+  <!-- ========================================================================= -->
+  <main class="main-content" id="view-parking-discovery" role="main">
+
+    <!-- Destination & Geological Starting Location Controls -->
+    <section class="search-controls-card" aria-label="Area Search and Origin Controls">
+      
+      <!-- Row 1: Geological Starting Location (Origin) & Destination (Area Search) -->
+      <div class="search-dual-grid">
+        
+        <!-- Geological Origin / Starting Point -->
+        <div class="origin-input-wrapper">
+          <label for="origin-location-select" class="input-field-label">
+            <span class="label-icon">📍</span>
+            <span>My Starting Location:</span>
+          </label>
+          <div class="origin-control-bar">
+            <select id="origin-location-select" class="origin-select" onchange="handleOriginChange(this.value)">
+              <option value="gps">📍 Use My GPS / Current Location</option>
+              <option value="orchard">Orchard / Somerset (Central)</option>
+              <option value="cbd" selected>Raffles Place / CBD (Downtown)</option>
+              <option value="bishan">Bishan / AMK (Central/North)</option>
+              <option value="serangoon">Serangoon / Kovan (North-East)</option>
+              <option value="tampines">Tampines / Bedok (East)</option>
+              <option value="jurong">Jurong East (West)</option>
+              <option value="woodlands">Woodlands (North)</option>
+            </select>
+            <button type="button" class="btn btn-locate-gps" id="btn-gps-trigger" onclick="requestBrowserGeolocation()" title="Detect current GPS location">
+              🎯 GPS
+            </button>
+          </div>
+        </div>
+
+        <!-- Destination / Area Search Input -->
+        <div class="destination-input-wrapper">
+          <label for="destination-search-input" class="input-field-label">
+            <span class="label-icon">🔍</span>
+            <span>Destination Area / Landmark:</span>
+          </label>
+          <div class="search-input-group">
+            <input 
+              type="text" 
+              id="destination-search-input" 
+              class="destination-input" 
+              placeholder="Search Singapore Area (e.g. Serangoon Gardens, Orchard, Katong, Tanjong Pagar...)" 
+              value="Serangoon Gardens (Chomp Chomp & myVillage)"
+              autocomplete="off"
+              aria-autocomplete="list"
+              aria-controls="autocomplete-dropdown"
+            />
+            <button type="button" class="clear-search-btn" id="clear-search-btn" onclick="clearSearchInput()" aria-label="Clear search input">✕</button>
+            
+            <!-- Autocomplete Suggestions List -->
+            <div class="autocomplete-dropdown" id="autocomplete-dropdown" role="listbox"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Quick Singapore Area Chips -->
+      <div class="quick-areas-container">
+        <span class="quick-areas-title">Popular Areas:</span>
+        <div class="quick-destinations-row" id="quick-destinations-bar" aria-label="Popular Singapore Areas & Towns">
+          <!-- Injected via JavaScript -->
+        </div>
+      </div>
+
+      <!-- Vehicle Type Toggle & Duration Filter -->
+      <div class="controls-secondary-row">
+        
+        <!-- Vehicle Type Selector (Car vs Motorcycle) -->
+        <div class="vehicle-selector-group">
+          <span class="control-section-label">Vehicle Type:</span>
+          <div class="vehicle-toggle-pills" role="radiogroup" aria-label="Select Vehicle Type">
+            <button 
+              type="button" 
+              class="vehicle-pill active" 
+              id="veh-pill-car" 
+              onclick="setVehicleType('car')" 
+              role="radio" 
+              aria-checked="true"
+            >
+              <span class="pill-icon">🚗</span>
+              <span>Car</span>
+            </button>
+            <button 
+              type="button" 
+              class="vehicle-pill" 
+              id="veh-pill-motorcycle" 
+              onclick="setVehicleType('motorcycle')" 
+              role="radio" 
+              aria-checked="false"
+            >
+              <span class="pill-icon">🏍️</span>
+              <span>Motorcycle</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Duration Filter & Pricing Selector -->
+        <div class="duration-selector-group">
+          <span class="control-section-label">Est. Stay Duration:</span>
+          <div class="duration-chips" role="radiogroup" aria-label="Select Parking Duration">
+            <button type="button" class="duration-chip" data-mins="30" onclick="setParkingDuration(30)" role="radio" aria-checked="false">30 min</button>
+            <button type="button" class="duration-chip" data-mins="60" onclick="setParkingDuration(60)" role="radio" aria-checked="false">1 hr</button>
+            <button type="button" class="duration-chip active" data-mins="120" onclick="setParkingDuration(120)" role="radio" aria-checked="true">2 hrs</button>
+            <button type="button" class="duration-chip" data-mins="180" onclick="setParkingDuration(180)" role="radio" aria-checked="false">3 hrs</button>
+            <button type="button" class="duration-chip" data-mins="240" onclick="setParkingDuration(240)" role="radio" aria-checked="false">4 hrs</button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Core App Grid (Google Maps UI + Smart Recommendations Sidebar) -->
+    <div class="app-grid-layout">
+      
+      <!-- Dominant Interactive Google Maps Surface -->
+      <section class="map-surface-card" aria-label="Singapore Carpark Interactive Map">
+        <div class="map-header-bar">
+          <div class="map-title-wrapper">
+            <h2 class="map-title" id="map-heading-title">Google Maps Interactive View</h2>
+            <span class="carpark-count-badge" id="map-lot-count-badge">🚗 Live Car Lots</span>
+          </div>
+          
+          <div class="map-controls-toolbar">
+            <div class="map-mode-pills">
+              <button type="button" class="map-mode-pill active" id="btn-map-street" onclick="setMapLayer('street')">Map</button>
+              <button type="button" class="map-mode-pill" id="btn-map-satellite" onclick="setMapLayer('satellite')">Satellite</button>
+            </div>
+            <button type="button" class="map-tool-btn" onclick="refreshCarparkAvailability()" title="Refresh live lot counts">
+              🔄 Refresh Lots
+            </button>
+            <button type="button" class="map-tool-btn" onclick="fitMapToVisibleMarkers()" title="Center map to carparks">
+              🎯 Center View
+            </button>
+          </div>
+        </div>
+
+        <!-- Google Maps Styled Map Container -->
+        <div class="map-viewport-wrapper">
+          <div id="interactive-leaflet-map" tabindex="0" role="region" aria-label="Interactive Google Maps interface with parking lot bubbles and turnover rates">
+            <!-- Leaflet Google Maps UI rendered here -->
+          </div>
+
+          <!-- Integrated Google Maps Info Overlay Banner -->
+          <div class="map-gmaps-overlay" id="map-gmaps-overlay">
+            <div class="gmaps-overlay-content">
+              <span class="gmaps-pin-icon">📍</span>
+              <div class="gmaps-overlay-text">
+                <strong id="overlay-area-name">Serangoon Gardens Area</strong>
+                <span id="overlay-eta-text">Calculating drive time...</span>
+              </div>
+            </div>
+            <a 
+              href="https://www.google.com/maps/search/?api=1&query=Serangoon+Gardens+Singapore" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              class="btn-gmaps-integrated" 
+              id="btn-gmaps-integrated-link"
+              title="Open turn-by-turn route in Google Maps App"
+            >
+              <span class="gmaps-g-icon">G</span>
+              <span>Open in Google Maps</span>
+            </a>
+          </div>
+
+          <!-- Map Legend -->
+          <div class="map-legend-card">
+            <div class="legend-item"><span class="legend-color high"></span> High (&gt;50)</div>
+            <div class="legend-item"><span class="legend-color med"></span> Med (15-50)</div>
+            <div class="legend-item"><span class="legend-color low"></span> Low (&lt;15)</div>
+            <div class="legend-item"><span class="legend-color expiry">⏱️</span> 30m Turnover</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Recommendation and Detail Sidebar -->
+      <aside class="discovery-sidebar" aria-label="Carpark Recommendations and Arrival Predictions">
+        
+        <!-- Final Recommended Carpark Master Card -->
+        <div id="recommendation-card-container">
+          <!-- Rendered dynamically by app.js -->
+        </div>
+
+        <!-- Candidate Nearby Carparks Comparison List -->
+        <div id="candidate-list-container">
+          <!-- Rendered dynamically by app.js -->
+        </div>
+
+      </aside>
+
+    </div>
+
+  </main>
+
+  <!-- ========================================================================= -->
+  <!-- VIEW 2: LUNCH & PARKING DEALS (DEDICATED SEPARATE TAB) -->
+  <!-- ========================================================================= -->
+  <section class="main-content lunch-deals-view" id="view-lunch-deals" role="region" aria-label="Lunch Deals and Free Parking Directory" style="display: none;">
+    
+    <!-- Lunch Deals Header Card -->
+    <div class="lunch-hero-card">
+      <div class="lunch-hero-badge">🍽️ WEEKDAY LUNCH SPECIALS · 12:00 PM – 2:00 PM</div>
+      <h2>Singapore Lunch Parking Perks & Dining Rebates</h2>
+      <p>Save on parking while dining! Enjoy complimentary 1-2 hour lunch parking, F&B spending waivers, and merchant rebates across Singapore's top food enclaves and malls.</p>
+      
+      <!-- Area Filter Pills for Lunch Deals -->
+      <div class="lunch-area-filter-bar" id="lunch-area-filters" role="tablist" aria-label="Filter lunch deals by Singapore Area">
+        <!-- Injected via JavaScript -->
+      </div>
+    </div>
+
+    <!-- Lunch Deals Cards Grid -->
+    <div class="lunch-cards-grid" id="lunch-deals-grid-container">
+      <!-- Injected via JavaScript -->
+    </div>
+
+  </section>
+
+  <!-- Carpark Full Detail Modal Dialog -->
+  <div class="modal-backdrop" id="carpark-detail-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-carpark-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h2 id="modal-carpark-title">Carpark Details</h2>
+          <p class="modal-subtitle" id="modal-carpark-subtitle">Operator & Location</p>
+        </div>
+        <button type="button" class="modal-close-btn" onclick="closeCarparkModal()" aria-label="Close details modal">✕</button>
+      </div>
+
+      <div class="modal-body" id="modal-body-content">
+        <!-- Injected via JavaScript -->
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeCarparkModal()">Close</button>
+        <button type="button" class="btn btn-primary" onclick="handleGetDirections(AppState.modalCarpark?.id)">
+          🧭 Get Directions in Google Maps
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Application Footer -->
+  <footer class="app-footer" role="contentinfo">
+    <div class="footer-inner">
+      <div>
+        <strong>Singapore Nationwide Parking Discovery</strong> · Real-time availability, 30m turnover rates & arrival calculations
+      </div>
+      <div class="provider-tags-list">
+        <span>Data Sources:</span>
+        <span class="provider-tag">Parking.sg Sessions</span>
+        <span class="provider-tag">LTA DataMall</span>
+        <span class="provider-tag">URA / HDB EPS</span>
+        <span class="provider-tag">CapitaLand & Mall Partners</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+  <!-- Application Data & Logic -->
+  <script src="/destinationsData.js"></script>
+  <script src="/carparksData.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
